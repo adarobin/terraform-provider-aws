@@ -151,6 +151,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/service/opsworks"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/organizations"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/outposts"
+	"github.com/hashicorp/terraform-provider-aws/internal/service/pcaconnectorad"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/pinpoint"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/pipes"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/pricing"
@@ -362,6 +363,7 @@ func servicePackages(ctx context.Context) []conns.ServicePackage {
 		opsworks.ServicePackage(ctx),
 		organizations.ServicePackage(ctx),
 		outposts.ServicePackage(ctx),
+		pcaconnectorad.ServicePackage(ctx),
 		pinpoint.ServicePackage(ctx),
 		pipes.ServicePackage(ctx),
 		pricing.ServicePackage(ctx),

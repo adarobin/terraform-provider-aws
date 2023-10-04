@@ -142,6 +142,7 @@ val services = mapOf(
     "opsworks" to ServiceSpec("OpsWorks", vpcLock = true),
     "organizations" to ServiceSpec("Organizations"),
     "outposts" to ServiceSpec("Outposts"),
+    "pcaconnectorad" to ServiceSpec("Private CA Connector for Active Directory"),
     "pinpoint" to ServiceSpec("Pinpoint"),
     "pipes" to ServiceSpec("EventBridge Pipes"),
     "pricing" to ServiceSpec("Pricing Calculator", regionOverride = "us-east-1"),
