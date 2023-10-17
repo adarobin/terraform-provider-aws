@@ -12,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/pcaconnectorad"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/pcaconnectorad/types"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -19,6 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
 	"github.com/hashicorp/terraform-provider-aws/internal/framework"
@@ -76,15 +79,19 @@ func (r *resourceConnector) Schema(ctx context.Context, req resource.SchemaReque
 			"id":              framework.IDAttribute(),
 			names.AttrTags:    tftags.TagsAttribute(),
 			names.AttrTagsAll: tftags.TagsAttributeComputedOnly(),
-			"security_group_ids": schema.SetAttribute{
-				Required:    true,
-				ElementType: types.StringType,
-				PlanModifiers: []planmodifier.Set{
-					setplanmodifier.RequiresReplace(),
-				},
-			},
 		},
 		Blocks: map[string]schema.Block{
+			"vpc_information": schema.SingleNestedBlock{
+				Attributes: map[string]schema.Attribute{
+					"security_group_ids": schema.SetAttribute{
+						Required:    true,
+						ElementType: types.StringType,
+						PlanModifiers: []planmodifier.Set{
+							setplanmodifier.RequiresReplace(),
+						},
+					},
+				},
+			},
 			"timeouts": timeouts.Block(ctx, timeouts.Opts{
 				Create: true,
 				Update: true,
@@ -103,21 +110,17 @@ func (r *resourceConnector) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
+	vpcInfo, d := expandVPCInformation(ctx, plan.VPCInformation)
+	resp.Diagnostics.Append(d...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	in := &pcaconnectorad.CreateConnectorInput{
 		CertificateAuthorityArn: aws.String(plan.CertificateAuthorityARN.ValueString()),
 		DirectoryId:             aws.String(plan.DirectoryID.ValueString()),
-		VpcInformation:          &awstypes.VpcInformation{},
+		VpcInformation:          vpcInfo,
 		Tags:                    getTagsIn(ctx),
-	}
-
-	if !plan.SecurityGroupIDs.IsNull() {
-		var sgList []string
-		resp.Diagnostics.Append(plan.SecurityGroupIDs.ElementsAs(ctx, &sgList, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		in.VpcInformation.SecurityGroupIds = sgList
 	}
 
 	out, err := conn.CreateConnector(ctx, in)
@@ -175,12 +178,15 @@ func (r *resourceConnector) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
+	vpcInfo, d := flattenVPCInformation(ctx, out.VpcInformation)
+	resp.Diagnostics.Append(d...)
+
 	state.ARN = flex.StringToFramework(ctx, out.Arn)
 	state.CertificateAuthorityARN = flex.StringToFramework(ctx, out.CertificateAuthorityArn)
 	state.CertificateEnrollmentPolicyServerEndpoint = flex.StringToFramework(ctx, out.CertificateEnrollmentPolicyServerEndpoint)
 	state.DirectoryID = flex.StringToFramework(ctx, out.DirectoryId)
 	state.ID = flex.StringToFramework(ctx, out.Arn)
-	state.SecurityGroupIDs = flex.FlattenFrameworkStringValueSet(ctx, out.VpcInformation.SecurityGroupIds)
+	state.VPCInformation = vpcInfo
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -313,8 +319,52 @@ type resourceConnectorData struct {
 	CertificateEnrollmentPolicyServerEndpoint types.String   `tfsdk:"certificate_enrollment_policy_server_endpoint"`
 	DirectoryID                               types.String   `tfsdk:"directory_id"`
 	ID                                        types.String   `tfsdk:"id"`
-	SecurityGroupIDs                          types.Set      `tfsdk:"security_group_ids"`
 	Tags                                      types.Map      `tfsdk:"tags"`
 	TagsAll                                   types.Map      `tfsdk:"tags_all"`
 	Timeouts                                  timeouts.Value `tfsdk:"timeouts"`
+	VPCInformation                            types.Object   `tfsdk:"vpc_information"`
+}
+
+type vpcInformation struct {
+	SecurityGroupIDs types.Set `tfsdk:"security_group_ids"`
+}
+
+func expandVPCInformation(ctx context.Context, vpcInfo types.Object) (*awstypes.VpcInformation, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	var sgIDs []string
+	var v vpcInformation
+
+	opts := basetypes.ObjectAsOptions{
+		UnhandledNullAsEmpty:    false,
+		UnhandledUnknownAsEmpty: false,
+	}
+
+	diags.Append(vpcInfo.As(ctx, v, opts)...)
+	diags.Append(v.SecurityGroupIDs.ElementsAs(ctx, sgIDs, false)...)
+
+	vpcInformation := &awstypes.VpcInformation{
+		SecurityGroupIds: sgIDs,
+	}
+
+	return vpcInformation, diags
+}
+
+var vpcInformationAttrTypes = map[string]attr.Type{
+	"security_group_ids": types.SetType{ElemType: types.StringType},
+}
+
+func flattenVPCInformation(ctx context.Context, apiObject *awstypes.VpcInformation) (types.Object, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	if apiObject == nil {
+		return types.ObjectNull(vpcInformationAttrTypes), diags
+	}
+
+	obj := map[string]attr.Value{
+		"security_group_ids": flex.FlattenFrameworkStringValueSet(ctx, apiObject.SecurityGroupIds),
+	}
+	objVal, d := types.ObjectValue(vpcInformationAttrTypes, obj)
+	diags.Append(d...)
+
+	return objVal, diags
 }
