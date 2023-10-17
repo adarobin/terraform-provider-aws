@@ -27,6 +27,24 @@ func (p *servicePackage) FrameworkResources(ctx context.Context) []*types.Servic
 				IdentifierAttribute: "arn",
 			},
 		},
+		{
+			Factory: newResourceDirectoryRegistration,
+			Name:    "Directory Registration",
+			Tags: &types.ServicePackageResourceTags{
+				IdentifierAttribute: "arn",
+			},
+		},
+		{
+			Factory: newResourceTemplate,
+			Name:    "Template",
+			Tags: &types.ServicePackageResourceTags{
+				IdentifierAttribute: "arn",
+			},
+		},
+		{
+			Factory: newResourceTemplateGroupAccessControlEntry,
+			Name:    "Template Group Access Control Entry",
+		},
 	}
 }
 
